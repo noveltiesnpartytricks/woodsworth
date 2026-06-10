@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>The World Is Too Much with Us — William Wordsworth</title>
+<meta name="description" content="A scrolling 3D reading of Wordsworth's sonnet, 1807 — apparitions in the fog.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#d8d2c2; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior:auto; }
+  body { background:#0c0f12; overflow-x:hidden; font-family:'Cormorant Garamond', Georgia, serif; }
+  #spacer { width:1px; }
+  #stage { position:fixed; inset:0; width:100%; height:100dvh; display:block; }
+  /* vignette + grain */
+  #vignette { position:fixed; inset:0; pointer-events:none; z-index:3;
+    background: radial-gradient(ellipse at 50% 52%, transparent 52%, rgba(0,0,0,.55) 100%); }
+  #grain { position:fixed; inset:-50%; width:200%; height:200%; pointer-events:none; z-index:4; opacity:.06;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    animation: grain 7s steps(8) infinite; }
+  @keyframes grain { 0%,100%{transform:translate(0,0)} 25%{transform:translate(-2%,1%)} 50%{transform:translate(1%,-2%)} 75%{transform:translate(-1%,2%)} }
+  @media (prefers-reduced-motion: reduce){ #grain{animation:none} }
+
+  /* title gate */
+  #gate { position:fixed; inset:0; z-index:10; background:#090b0e;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:6vw; transition:opacity 2.4s ease; }
+  #gate.gone { opacity:0; pointer-events:none; }
+  #gate .epigraph { color:#5a6066; font-style:italic; font-size:clamp(13px,3.4vw,16px); letter-spacing:.14em; margin-bottom:3.2em; }
+  #gate h1 { color:var(--ink); font-weight:400; font-size:clamp(27px,7.4vw,54px); line-height:1.22; letter-spacing:.06em; max-width:14em; }
+  #gate .author { color:#8d8775; font-size:clamp(14px,3.8vw,18px); letter-spacing:.32em; text-transform:uppercase; margin-top:2.2em; }
+  #begin { margin-top:4em; background:none; color:var(--ink); border:1px solid #4a4538;
+    font-family:inherit; font-size:clamp(13px,3.6vw,16px); letter-spacing:.42em; text-indent:.42em;
+    padding:1.05em 2.6em; cursor:pointer; transition:border-color .5s, color .5s, background .5s; }
+  #begin:hover, #begin:focus-visible { border-color:#a89c78; color:#f0e8d2; background:rgba(168,156,120,.06); outline:none; }
+  #hint { position:fixed; left:0; right:0; bottom:max(4.5dvh, env(safe-area-inset-bottom)); z-index:5; text-align:center;
+    color:#9a9484; font-size:13px; letter-spacing:.38em; text-indent:.38em; text-transform:uppercase;
+    opacity:0; transition:opacity 1.8s ease; pointer-events:none; }
+  #hint.show { opacity:.75; animation:breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 0%,100%{opacity:.35} 50%{opacity:.8} }
+  #hint.show.fade { opacity:0 !important; animation:none; }
+  #loadnote { color:#4a5056; font-size:12px; letter-spacing:.2em; margin-top:1.6em; min-height:1em; }
+</style>
+</head>
+<body>
+<div id="spacer"></div>
+<canvas id="stage"></canvas>
+<div id="vignette"></div>
+<div id="grain"></div>
+<div id="hint">scroll</div>
+<div id="gate">
+  <div class="epigraph">a sonnet, read in fog</div>
+  <h1>The World Is Too Much with&nbsp;Us</h1>
+  <div class="author">William Wordsworth · 1807</div>
+  <button id="begin">Begin</button>
+  <div id="loadnote"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+/* ============================== ASSETS ============================== */
+const IMG = {
+  watch:      "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057105/watch_rhanx8.png",
+  coins:      "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057129/coins_uoeq3e.png",
+  datacenter: "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057831/datacenter_a_jbyr4s.png",
+  sea:        "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057104/sea_skejkf.png",
+  winds:      "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057104/winds_zo7el3.png",
+  lea:        "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057104/lea_x8aiul.png",
+  proteus:    "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057155/proteus_t8oau5.png",
+  triton:     "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057155/triton_wd5k45.png",
+  moon:       "https://res.cloudinary.com/du8ydfy3a/image/upload/q_auto/f_auto/v1781057103/moon_f2032x.png"
+};
+const AUD = {
+  music: "https://res.cloudinary.com/du8ydfy3a/video/upload/q_auto/f_auto/v1781056000/Moonlit_Tides_vpznpb.mp3",
+  clock: "https://res.cloudinary.com/du8ydfy3a/video/upload/q_auto/f_auto/v1781057358/clock_fqtvva.mp3",
+  bells: "https://res.cloudinary.com/du8ydfy3a/video/upload/q_auto/f_auto/v1781057360/bells_oufbvd.mp3",
+  wind:  "https://res.cloudinary.com/du8ydfy3a/video/upload/q_auto/f_auto/v1781057359/wind_z94ci2.mp3",
+  wave:  "https://res.cloudinary.com/du8ydfy3a/video/upload/q_auto/f_auto/v1781057359/wave_tohjv5.mp3",
+  horn:  "https://res.cloudinary.com/du8ydfy3a/video/upload/q_auto/f_auto/v1781057360/horn_g1cvjn.mp3"
+};
+
+/* ============================== SCENE CORE ============================== */
+const COURSE = 640;                       // world units of travel
+const isPortrait = () => innerHeight > innerWidth;
+const mobile = matchMedia("(pointer:coarse)").matches;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const canvas = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(isPortrait()?74:60, innerWidth/innerHeight, .1, 260);
+const camZ = p => 8 - p * COURSE;
+camera.position.set(0, 0, camZ(0));
+
+scene.fog = new THREE.FogExp2(0x12161a, .03);
+scene.background = new THREE.Color(0x12161a);
+
+/* fog & colour choreography  {t, colour, density} */
+const FOGK = [
+  {t:0.00, c:new THREE.Color(0x12161a), d:.030},
+  {t:0.20, c:new THREE.Color(0x141a1b), d:.035},
+  {t:0.46, c:new THREE.Color(0x0c0f12), d:.044},
+  {t:0.565,c:new THREE.Color(0x0a0d11), d:.050},  // It moves us not — densest
+  {t:0.645,c:new THREE.Color(0x0b1733), d:.020},  // volta release into ultramarine
+  {t:0.80, c:new THREE.Color(0x0d1d3f), d:.0155},
+  {t:1.00, c:new THREE.Color(0x091228), d:.0125}
+];
+function fogAt(p){
+  let a=FOGK[0], b=FOGK[FOGK.length-1];
+  for(let i=0;i<FOGK.length-1;i++) if(p>=FOGK[i].t && p<=FOGK[i+1].t){a=FOGK[i];b=FOGK[i+1];break;}
+  const k=(p-a.t)/Math.max(b.t-a.t,1e-5), e=k*k*(3-2*k);
+  scene.fog.color.copy(a.c).lerp(b.c,e);
+  scene.fog.density = a.d+(b.d-a.d)*e;
+  scene.background.copy(scene.fog.color);
+}
+
+/* visible width/height at a distance ahead of camera */
+const visH = d => 2*d*Math.tan(THREE.MathUtils.degToRad(camera.fov)/2);
+const visW = d => visH(d)*camera.aspect;
+
+/* ============================== TEXT ============================== */
+const FONT_READY = document.fonts.load("500 96px 'Cormorant Garamond'").catch(()=>{});
+function makeTextSprite(text, opt){
+  // opt: worldH (cap-height of a line in world units), colour, glow, italic, maxW (world)
+  const fpx=96, lh=1.42, pad=70;
+  const cv=document.createElement("canvas"), g=cv.getContext("2d");
+  const style=(opt.italic?"italic ":"")+"500 "+fpx+"px 'Cormorant Garamond', Georgia, serif";
+  g.font=style; if("letterSpacing" in g) g.letterSpacing="0.06em";
+  const s = opt.worldH/fpx;                       // px -> world
+  const maxPx = opt.maxW/s;
+  // wrap
+  const words=text.split(" "), lines=[]; let cur="";
+  for(const w of words){
+    const t=cur?cur+" "+w:w;
+    if(g.measureText(t).width>maxPx && cur){lines.push(cur);cur=w;} else cur=t;
+  }
+  lines.push(cur);
+  const wpx=Math.max(...lines.map(l=>g.measureText(l).width));
+  cv.width=Math.ceil(wpx+pad*2); cv.height=Math.ceil(lines.length*fpx*lh+pad*2);
+  g.font=style; if("letterSpacing" in g) g.letterSpacing="0.06em";
+  g.textAlign="center"; g.textBaseline="middle";
+  g.shadowColor=opt.glow||"rgba(255,250,230,.38)"; g.shadowBlur=26;
+  g.fillStyle=opt.colour||"#d8d2c2";
+  lines.forEach((l,i)=>g.fillText(l, cv.width/2, pad+fpx*lh*(i+.5)));
+  const tex=new THREE.CanvasTexture(cv); tex.minFilter=THREE.LinearFilter; tex.anisotropy=4;
+  const mat=new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false, opacity:0});
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(cv.width*s, cv.height*s), mat);
+  return mesh;
+}
+
+/* the sonnet — beats along the course */
+const READ_D = 15;                                  // prime reading distance
+const SILVER="#cdd2d3", WARM="#e8dcb8", DIM="#9aa0a3", GOLD="#f0e2b0";
+const LINES = [
+  {t:.050, txt:"The world is too much with us; late and soon,", c:SILVER},
+  {t:.115, txt:"Getting and spending, we lay waste our powers;—", c:SILVER, scatter:true},
+  {t:.190, txt:"Little we see in Nature that is ours;", c:SILVER},
+  {t:.255, txt:"We have given our hearts away, a sordid boon!", c:SILVER},
+  {t:.320, txt:"This Sea that bares her bosom to the moon;", c:SILVER},
+  {t:.390, txt:"The winds that will be howling at all hours,", c:SILVER},
+  {t:.455, txt:"And are up-gathered now like sleeping flowers;", c:SILVER},
+  {t:.515, txt:"For this, for everything, we are out of tune;", c:SILVER},
+  {t:.565, txt:"It moves us not.", c:DIM, small:true, glow:"rgba(150,150,150,.15)"},
+  {t:.615, txt:"Great God! I’d rather be", c:GOLD, big:true, glow:"rgba(255,220,150,.55)"},
+  {t:.665, txt:"A Pagan suckled in a creed outworn;", c:WARM},
+  {t:.720, txt:"So might I, standing on this pleasant lea,", c:WARM},
+  {t:.770, txt:"Have glimpses that would make me less forlorn;", c:WARM},
+  {t:.828, txt:"Have sight of Proteus rising from the sea;", c:WARM},
+  {t:.892, txt:"Or hear old Triton blow his wreathèd horn.", c:WARM},
+  {t:.962, txt:"William Wordsworth — 1807", c:"#8d8775", small:true, italic:true, glow:"rgba(0,0,0,0)"}
+];
+const textMeshes=[];
+function buildText(){
+  const maxW = visW(READ_D)*.86;
+  const baseH = Math.min(visW(READ_D)*.052, .92);   // scales type to viewport width
+  LINES.forEach(L=>{
+    const h = baseH*(L.big?1.5:L.small?.78:1);
+    if(L.scatter){
+      // per-word planes that drift apart after you pass
+      const group=new THREE.Group(); const words=L.txt.split(" ");
+      const meas=document.createElement("canvas").getContext("2d");
+      meas.font="500 96px 'Cormorant Garamond', Georgia, serif";
+      const s=h/96, sp=meas.measureText(" ").width*s;
+      let total=0; const ws=words.map(w=>{const wd=meas.measureText(w).width*s; total+=wd+sp; return wd;});
+      let x=-total/2;
+      words.forEach((w,i)=>{
+        const m=makeTextSprite(w,{worldH:h,colour:L.c,maxW:99});
+        m.position.set(x+ws[i]/2,0,0); x+=ws[i]+sp;
+        m.userData.scat={dx:(Math.random()-.5)*7, dy:-1.5-Math.random()*3.5, rot:(Math.random()-.5)*.9};
+        group.add(m);
+      });
+      group.position.set(0,0,camZ(L.t)-READ_D);
+      group.userData={beat:L, scatterGroup:true};
+      scene.add(group); textMeshes.push(group);
+    } else {
+      const m=makeTextSprite(L.txt,{worldH:h,colour:L.c,glow:L.glow,italic:L.italic,maxW});
+      m.position.set(0, L.small?-.2:0, camZ(L.t)-READ_D);
+      m.userData={beat:L};
+      scene.add(m); textMeshes.push(m);
+    }
+  });
+}
+
+/* ============================== APPARITIONS ============================== */
+const loader=new THREE.TextureLoader(); loader.crossOrigin="anonymous";
+/* {key,t, x,y (fractions of visW/visH at its distance), w (fraction of visW), d (distance ahead of beat), add, rise} */
+const ART = [
+  {key:"watch",      t:.082, x:-.30, y:.16,  w:.62, d:22},
+  {key:"coins",      t:.140, x:.30,  y:-.10, w:.66, d:22},
+  {key:"datacenter", t:.205, x:0,    y:.05,  w:1.25,d:34},
+  {key:"sea",        t:.345, x:0,    y:.08,  w:1.05,d:30},
+  {key:"winds",      t:.430, x:-.26, y:.14,  w:.70, d:24},
+  {key:"lea",        t:.700, x:0,    y:-.12, w:1.15,d:28, add:true},
+  {key:"proteus",    t:.815, x:0,    y:0,    w:1.55,d:30, add:true, rise:true},
+  {key:"triton",     t:.880, x:.16,  y:.05,  w:.85, d:24, add:true},
+  {key:"moon",       t:.948, x:0,    y:.30,  w:.62, d:30, add:true}
+];
+const artMeshes=[];
+function buildArt(){
+  ART.forEach(A=>{
+    loader.load(IMG[A.key], tex=>{
+      tex.minFilter=THREE.LinearFilter; tex.anisotropy=4;
+      const ar=tex.image.height/tex.image.width;
+      const W=visW(A.d)*A.w, H=W*ar;
+      const mat=new THREE.MeshBasicMaterial({map:tex,transparent:true,depthWrite:false,opacity:0,
+        blending:A.add?THREE.AdditiveBlending:THREE.NormalBlending});
+      const m=new THREE.Mesh(new THREE.PlaneGeometry(W,H),mat);
+      const baseY=visH(A.d)*A.y + (A.rise? -H*.85 : 0);
+      m.position.set(visW(A.d)*A.x, baseY, camZ(A.t)-A.d);
+      m.userData={art:A, H, baseY, phase:Math.random()*6.28};
+      scene.add(m); artMeshes.push(m);
+    });
+  });
+}
+
+/* ============================== PARTICLES & STARS ============================== */
+function makePoints(n, spreadXY, colour, size, zFrom, zTo, additive){
+  const pos=new Float32Array(n*3);
+  for(let i=0;i<n;i++){
+    pos[i*3]=(Math.random()-.5)*spreadXY;
+    pos[i*3+1]=(Math.random()-.5)*spreadXY*.7;
+    pos[i*3+2]=zFrom+Math.random()*(zTo-zFrom);
+  }
+  const g=new THREE.BufferGeometry(); g.setAttribute("position",new THREE.BufferAttribute(pos,3));
+  const m=new THREE.PointsMaterial({color:colour,size,transparent:true,opacity:0,
+    sizeAttenuation:true, depthWrite:false, blending:additive?THREE.AdditiveBlending:THREE.NormalBlending});
+  const pts=new THREE.Points(g,m); scene.add(pts); return pts;
+}
+const motes = makePoints(mobile?260:650, 46, 0xbfc6c9, .07, 20, -COURSE-30, false);
+const stars = makePoints(mobile?220:520, 90, 0xcfe0ff, .10, camZ(.6), -COURSE-60, true);
+
+/* ============================== AUDIO ============================== */
+const audio = {ready:false, ctx:null, filter:null, musicGain:null, sfx:{}, master:null,
+               clockGain:null, fallback:null};
+async function initAudio(note){
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    const ctx=new Ctx(); audio.ctx=ctx;
+    audio.master=ctx.createGain(); audio.master.gain.value=1; audio.master.connect(ctx.destination);
+    note("waking the sea…");
+    const fetchBuf=async u=>{const r=await fetch(u); const b=await r.arrayBuffer(); return await ctx.decodeAudioData(b);};
+    const [mus,clk,bel,wnd,wav,hrn]=await Promise.all([
+      fetchBuf(AUD.music),fetchBuf(AUD.clock),fetchBuf(AUD.bells),
+      fetchBuf(AUD.wind),fetchBuf(AUD.wave),fetchBuf(AUD.horn)]);
+    // music -> lowpass -> gain
+    const src=ctx.createBufferSource(); src.buffer=mus; src.loop=true;
+    audio.filter=ctx.createBiquadFilter(); audio.filter.type="lowpass";
+    audio.filter.frequency.value=260; audio.filter.Q.value=.7;
+    audio.musicGain=ctx.createGain(); audio.musicGain.gain.value=0;
+    src.connect(audio.filter); audio.filter.connect(audio.musicGain); audio.musicGain.connect(audio.master);
+    src.start();
+    // clock ambience loop
+    const cs=ctx.createBufferSource(); cs.buffer=clk; cs.loop=true;
+    audio.clockGain=ctx.createGain(); audio.clockGain.gain.value=0;
+    cs.connect(audio.clockGain); audio.clockGain.connect(audio.master); cs.start();
+    audio.sfx={bells:bel,wind:wnd,wave:wav,horn:hrn};
+    audio.ready=true;
+  }catch(e){
+    // CORS or decode failure — degrade to plain music playback, no filter
+    try{
+      const el=new Audio(AUD.music); el.loop=true; el.volume=0; el.play();
+      audio.fallback=el;
+    }catch(_){}
+  }
+}
+function playSfx(name, gain){
+  if(!audio.ready) return;
+  const b=audio.sfx[name]; if(!b) return;
+  const s=audio.ctx.createBufferSource(); s.buffer=b;
+  const g=audio.ctx.createGain(); g.gain.value=gain;
+  s.connect(g); g.connect(audio.master); s.start();
+}
+/* one-shot triggers {t, fn} with re-arm on backscroll */
+const TRIGGERS=[
+  {t:.250, fire:()=>playSfx("bells",.85)},
+  {t:.388, fire:()=>playSfx("wind",.8)},
+  {t:.798, fire:()=>playSfx("wave",.95)},
+  {t:.872, fire:()=>playSfx("horn",1.0)}
+].map(o=>(o.armed=true,o));
+
+function audioFrame(p){
+  if(audio.fallback){ audio.fallback.volume=Math.min(.8, Math.max(0,p*8)); return; }
+  if(!audio.ready) return;
+  // filter sweep: submerged through octave, dip into the silence, blown open at the volta
+  let f;
+  if(p<.53)       f = 240 + p*700;
+  else if(p<.585) f = 610 - (p-.53)*7000;          // sink at "It moves us not"
+  else if(p<.66)  { const k=(p-.585)/.075; f = 220*Math.pow(16000/220, k*k*(3-2*k)); }
+  else            f = 16000;
+  audio.filter.frequency.value=Math.max(120,f);
+  // music gain: fade in, duck at the dead line, swell after volta
+  let g=.72;
+  if(p<.03) g=.72*(p/.03);
+  if(p>.525&&p<.60) g=.72-(.5*Math.sin(Math.PI*(p-.525)/.075));
+  if(p>.60) g=Math.min(.95,.72+(p-.60)*.9);
+  audio.musicGain.gain.value+= (g-audio.musicGain.gain.value)*.04;
+  // clock ticks haunt the first line's watch
+  const ck=Math.exp(-Math.pow((p-.082)/.045,2))*.5;
+  audio.clockGain.gain.value+=(ck-audio.clockGain.gain.value)*.06;
+  // one-shots
+  TRIGGERS.forEach(tr=>{
+    if(tr.armed && p>=tr.t){tr.armed=false; tr.fire();}
+    if(!tr.armed && p<tr.t-.06) tr.armed=true;
+  });
+}
+
+/* ============================== SCROLL & INPUT ============================== */
+const spacer=document.getElementById("spacer");
+function sizeSpacer(){ spacer.style.height=(innerHeight*16)+"px"; }
+sizeSpacer();
+let target=0, prog=0, started=false;
+addEventListener("scroll",()=>{
+  const max=document.documentElement.scrollHeight-innerHeight;
+  target=Math.min(1,Math.max(0,scrollY/max));
+  if(started && target>.005) hint.classList.add("fade");
+},{passive:true});
+
+let mx=0,my=0;
+addEventListener("pointermove",e=>{
+  if(mobile) return;
+  mx=(e.clientX/innerWidth-.5)*2; my=(e.clientY/innerHeight-.5)*2;
+},{passive:true});
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.fov=isPortrait()?74:60;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+  sizeSpacer();
+});
+
+/* ============================== FRAME LOOP ============================== */
+const clock3=new THREE.Clock();
+function smooth(a,b,x){const k=Math.min(1,Math.max(0,(x-a)/(b-a)));return k*k*(3-2*k);}
+function animate(){
+  requestAnimationFrame(animate);
+  const t=clock3.getElapsedTime();
+  prog += (target-prog)*(reduceMotion?.12:.055);
+  const cz=camZ(prog);
+  const sway = reduceMotion?0:1;
+  camera.position.set(
+    Math.sin(t*.21)*.35*sway + mx*.9,
+    Math.sin(t*.16)*.22*sway - my*.55,
+    cz);
+  camera.rotation.set(-my*.03, -mx*.05, Math.sin(t*.13)*.006*sway);
+
+  fogAt(prog);
+
+  /* words */
+  textMeshes.forEach(m=>{
+    const beat=m.userData.beat;
+    const d=cz-m.position.z;
+    const vis = (1-smooth(26,44,d))*smooth(2.2,7,d);
+    if(m.userData.scatterGroup){
+      const pass = smooth(0,1,(beat.t<prog? (prog-beat.t)/.05 : 0));
+      m.children.forEach(w=>{
+        w.material.opacity = vis*(1-pass*.85);
+        const sc=w.userData.scat;
+        w.position.x += ((sc.dx*pass) - (w.userData._ox||0)); w.userData._ox=sc.dx*pass;
+        w.position.y += ((sc.dy*pass) - (w.userData._oy||0)); w.userData._oy=sc.dy*pass;
+        w.rotation.z = sc.rot*pass;
+      });
+    } else {
+      m.material.opacity = vis*(beat.small?.85:1);
+      m.position.y += Math.sin(t*.5+m.position.z)*0.0006*sway;
+    }
+  });
+
+  /* apparitions */
+  artMeshes.forEach(m=>{
+    const A=m.userData.art, d=cz-m.position.z;
+    let vis=(1-smooth(40,70,d))*smooth(3,10,d);
+    if(A.key==="datacenter") vis*=.92;
+    m.material.opacity=vis*(A.add?1:.96);
+    const ph=m.userData.phase;
+    m.position.x += Math.sin(t*.18+ph)*.004*sway;
+    m.rotation.z = Math.sin(t*.11+ph)*.012*sway;
+    if(A.rise){
+      const k=smooth(A.t-.075, A.t+.015, prog);
+      m.position.y = m.userData.baseY + (visH(A.d)*.04 - m.userData.baseY + m.userData.H*.78)*k;
+    } else {
+      m.position.y += Math.sin(t*.14+ph)*.005*sway;
+    }
+  });
+
+  /* particles */
+  motes.material.opacity = .5*(1-smooth(.55,.65,prog))+.18;
+  motes.rotation.z = t*.004*sway;
+  stars.material.opacity = .85*smooth(.60,.72,prog);
+
+  audioFrame(prog);
+  renderer.render(scene,camera);
+}
+
+/* ============================== BOOT ============================== */
+const gate=document.getElementById("gate"), hint=document.getElementById("hint"),
+      note=document.getElementById("loadnote"), begin=document.getElementById("begin");
+const setNote=s=>note.textContent=s;
+let booted=false;
+async function boot(){
+  if(booted) return; booted=true;
+  await FONT_READY;
+  buildText(); buildArt();
+  animate();
+}
+boot();
+begin.addEventListener("click", async ()=>{
+  begin.disabled=true; setNote("listening for the tide…");
+  await initAudio(setNote);
+  if(audio.ctx && audio.ctx.state==="suspended") await audio.ctx.resume();
+  scrollTo(0,0); target=0; prog=0; started=true;
+  gate.classList.add("gone"); hint.classList.add("show");
+  setTimeout(()=>gate.style.display="none", 2600);
+});
+})();
+</script>
+</body>
+</html>
